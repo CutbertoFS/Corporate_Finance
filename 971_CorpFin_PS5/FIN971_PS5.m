@@ -1,10 +1,10 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
 %{    
     Fin 971: Spring 2025 Corporate Finance
-    Problem Set 7: DeMarzo and Fishman (2007, RFS)
+    Problem Set 5: DeMarzo and Fishman (2007, RFS)
 
     Last Edit:  May 7, 2025
-    Authors:    Cutberto Frias Sarraf, Zachary Orlando
+    Authors:    Shangjie Shi, Dondrup Drakpa, Junkai Sun, Zachary Orlando, Cutberto Frias Sarraf
 %}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
 
