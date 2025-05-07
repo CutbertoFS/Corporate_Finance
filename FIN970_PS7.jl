@@ -123,7 +123,10 @@ function Solver(a::Float64, old_b::Vector{Float64}, param::Primitives, results::
     # Incentive Compatibility
     @NLexpression(model, IC_HH, d_H + (1 - p_H) * δ * a_H + p_H * R)
     @NLexpression(model, IC_HL, λ * (Y_H - Y_L) + d_L + (1 - p_L) * δ * a_L + p_L * R)
+    # @NLexpression(model, IC_LL, d_L + (1 - p_L) * δ * a_L + p_L * R)    
+    # @NLexpression(model, IC_LH, λ * (Y_L -  Y_H) + d_H + (1 - p_H) * δ * a_H + p_H * R)
     @NLconstraint(model, IC_HH >= IC_HL)
+    # @NLconstraint(model, IC_LL >= IC_LH)
 
     # Investor payoff
     @NLexpression(model, Payoff_Investor_H, (Y_H - d_H + p_H * L) + β * (1 - p_H) * b_H)
