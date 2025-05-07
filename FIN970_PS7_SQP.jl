@@ -9,8 +9,7 @@
 =# ##################################################################################################
 
 using Parameters, Plots, Random, LinearAlgebra, Statistics, LaTeXStrings, Distributions, Serialization
-using JuMP, Ipopt, Interpolations
-using LaTeXStrings, Dierckx, ForwardDiff
+using NLopt, Interpolations, Dierckx
 
 #= ################################################################################################## 
     Parameters
@@ -28,7 +27,7 @@ using LaTeXStrings, Dierckx, ForwardDiff
     Y_H::Float64    = 20.0                          # Project cash flow High value
     π_H::Float64    = 0.5                           # Probability of a High cash flow value
 
-    na::Int64       = 500
+    na::Int64       = 100
 
     μ::Float64      = π_H * Y_H + (1-π_H) * Y_L     # Expected cash flow
 
@@ -81,74 +80,73 @@ end
 
 =# ##################################################################################################
 
-function Solver(a::Float64, old_b::Vector{Float64}, param::Primitives, results::Results, other_param::OtherPrimitives)
+function Solver_NLopt(a::Float64, old_b::Vector{Float64}, param::Primitives, results::Results, other_param::OtherPrimitives)
     @unpack_Primitives param
     @unpack_Results results
     @unpack_OtherPrimitives other_param
 
-    Inter_func             = interpolate(old_b, BSpline(Cubic(Line(OnGrid()))))
-    Interpolation_function = extrapolate(Inter_func, Line())
+    # Precompute interpolation function once
+    Inter_func              = interpolate(old_b, BSpline(Cubic(Line(OnGrid()))))
+    Interpolation_function  = extrapolate(Inter_func, Flat())
 
-    # Define the model
-    model = Model(Ipopt.Optimizer)
-    set_silent(model)
-    set_optimizer_attribute(model, "print_level", 1)
+    function interp_b(a_H, a_L)
+        b_H = Interpolation_function(clamp(a_H, a_min, a_max))
+        b_L = Interpolation_function(clamp(a_L, a_min, a_max))
+        return b_H, b_L
+    end
 
-    # Register the custom interpolation function with JuMP
-    register(model, :custom_interp, 1, x -> Interpolation_function(clamp(x, a_min, a_max)); autodiff = true)
+    # 6 Decision Variables: [d_H, d_L, p_H, p_L, a_H, a_L]	
+    Options = Opt(:LD_SLSQP, 6)
+    lower_bounds!(Options, [0.0  , 0.0  , 0.0, 0.0, a_min, a_min])
+    upper_bounds!(Options, [a_max, a_max, 1.0, 1.0, a_max, a_max])
 
-    # Decision variables
-    @variable(model, 0 <= d_H <= a_max)
-    @variable(model, 0 <= d_L <= a_max)
-    @variable(model, 0 <= p_H <= 1)
-    @variable(model, 0 <= p_L <= 1)
-    @variable(model, a_min <= a_H <= a_max)
-    @variable(model, a_min <= a_L <= a_max)
-    set_start_value(d_H, 0.5 * a_max)
-    set_start_value(d_L, 0.5 * a_max)
-    set_start_value(p_H, 0.5)
-    set_start_value(p_L, 0.5)
-    set_start_value(a_H, 0.5 * (a_min + a_max))
-    set_start_value(a_L, 0.5 * (a_min + a_max))
+    function objective(x::Vector, grad::Vector)
+        d_H, d_L, p_H, p_L, a_H, a_L = x
+        b_H, b_L                     = interp_b(a_H, a_L)
+        PI_H                         = (Y_H - d_H + p_H * L) + β * (1 - p_H) * b_H
+        PI_L                         = (Y_L - d_L + p_L * L) + β * (1 - p_L) * b_L
+        return -(π_H * PI_H + (1 - π_H) * PI_L)
+    end
 
-    # Interpolated continuation values
-    @NLexpression(model, b_H, custom_interp(a_H))
-    @NLexpression(model, b_L, custom_interp(a_L))
+    function constraints(result::Vector, x::Vector, grad::Matrix)
+        d_H, d_L, p_H, p_L, a_H, a_L = x
 
-    # Promise-Keeping constraint
-    @NLexpression(model, Payoff_Agent_H, (d_H + p_H * R) + δ * (1 - p_H) * a_H)
-    @NLexpression(model, Payoff_Agent_L, (d_L + p_L * R) + δ * (1 - p_L) * a_L)
-    @NLconstraint(model, a == π_H * Payoff_Agent_H + (1 - π_H) * Payoff_Agent_L)
+        # 1. Promise-keeping
+        PA_H        = (d_H + p_H * R) + δ * (1 - p_H) * a_H
+        PA_L        = (d_L + p_L * R) + δ * (1 - p_L) * a_L
+        result[1]   = π_H * PA_H + (1 - π_H) * PA_L - a
 
-    # Incentive Compatibility
-    @NLexpression(model, IC_HH, d_H + (1 - p_H) * δ * a_H + p_H * R)
-    @NLexpression(model, IC_HL, λ * (Y_H - Y_L) + d_L + (1 - p_L) * δ * a_L + p_L * R)
-    # @NLexpression(model, IC_LL, d_L + (1 - p_L) * δ * a_L + p_L * R)    
-    # @NLexpression(model, IC_LH, λ * (Y_L -  Y_H) + d_H + (1 - p_H) * δ * a_H + p_H * R)
-    @NLconstraint(model, IC_HH == IC_HL)
-    # @NLconstraint(model, IC_LL >= IC_LH)
+        # 2. Incentive compatibility
+        IC_HH       = d_H + (1 - p_H) * δ * a_H + p_H * R
+        IC_HL       = λ * (Y_H - Y_L) + d_L + (1 - p_L) * δ * a_L + p_L * R
+        result[2]   = IC_HH - IC_HL
+    end
 
-    # Investor payoff
-    @NLexpression(model, Payoff_Investor_H, (Y_H - d_H + p_H * L) + β * (1 - p_H) * b_H)
-    @NLexpression(model, Payoff_Investor_L, (Y_L - d_L + p_L * L) + β * (1 - p_L) * b_L)
-    @NLexpression(model, Objective, π_H * Payoff_Investor_H + (1 - π_H) * Payoff_Investor_L)
-    @NLobjective(model, Max, Objective)
+    equality_constraint!(Options, constraints, [0.0, 0.0])
 
-    optimize!(model)
+    xtol_rel!(Options, 1e-4)
+    maxeval!(Options, 1000)
+
+    x0 = [0.5 * a_max, 0.5 * a_max, 0.5, 0.5, 0.5 * (a_min + a_max), 0.5 * (a_min + a_max)]
+    min_objective!(Options, objective)
+
+    (value, solution, ret) = optimize(Options, x0)
+
+    d_H, d_L, p_H, p_L, a_H, a_L = solution
+    b_H, b_L                     = interp_b(a_H, a_L)
 
     return (
-        obj = objective_value(model),
-        d_H = value(d_H),
-        d_L = value(d_L),
-        p_H = value(p_H),
-        p_L = value(p_L),
-        a_H = value(a_H),
-        a_L = value(a_L),
-        b_H = value(b_H),
-        b_L = value(b_L)
+        obj = -value,
+        d_H = d_H,
+        d_L = d_L,
+        p_H = p_H,
+        p_L = p_L,
+        a_H = a_H,
+        a_L = a_L,
+        b_H = b_H,
+        b_L = b_L
     )
 end
-
 
 function Solve_Model(param::Primitives, results::Results, other_param::OtherPrimitives; tol::Float64 = 1e-3)
     @unpack_Primitives param
@@ -162,17 +160,17 @@ function Solve_Model(param::Primitives, results::Results, other_param::OtherPrim
 
     while error > tol                                         # Begin iteration
         for i in 1:na
-            next_b[i] = Solver(a_grid[i], old_b, param, results, other_param)[1]
-            # println("Solver is in ", i, " iteration.")
+            next_b[i] = Solver_NLopt(a_grid[i], old_b, param, results, other_param)[1]
+            println("Solver is in ", i, " iteration.")
         end 
         error = maximum(abs.(next_b .- old_b))                # Reset error level
-        old_b = copy(next_b)                                  # Update value function
+        old_b = copy(next_b)                               # Update value function
         n += 1
         println("Solve_Model is in ", n, " iteration with error ", error)
     end
 
     for i in 1:na
-        res = Solver(a_grid[i], old_b, param, results, other_param)
+        res = Solver_NLopt(a_grid[i], old_b, param, results, other_param)
         b[i]    = res.obj
         d_H[i]  = res.d_H
         d_L[i]  = res.d_L
