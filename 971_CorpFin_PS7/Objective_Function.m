@@ -1,0 +1,34 @@
+% Objective function
+
+function obj = Objective_Function(x, a, Interpolation_function, parameters)
+
+    % Unpacking the parameters
+    beta    = parameters(1);
+    delta   = parameters(2);
+    L       = parameters(3);
+    R       = parameters(4);
+    lambda  = parameters(5);
+    Y_L     = parameters(6);
+    Y_H     = parameters(7);
+    pi_H    = parameters(8);
+    na      = parameters(9);
+    mu      = parameters(10);
+    a_max   = parameters(11);
+    a_min   = parameters(12);
+    a_grid  = parameters(13:end);
+
+    % Extract decision variables from optimization result
+    d_H = x(1);
+    d_L = x(2);
+    p_H = x(3);
+    p_L = x(4);
+    a_H = x(5);
+    a_L = x(6);
+
+    Payoff_Investor_H = (Y_H - d_H + p_H * L) + beta * (1 - p_H) * Interpolation_function(a_H);
+    Payoff_Investor_L = (Y_L - d_L + p_L * L) + beta * (1 - p_L) * Interpolation_function(a_L);
+
+    % Objective function
+    obj = - (pi_H * Payoff_Investor_H + (1 - pi_H) * Payoff_Investor_L);
+
+end

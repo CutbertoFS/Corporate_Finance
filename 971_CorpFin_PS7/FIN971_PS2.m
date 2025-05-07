@@ -1,0 +1,99 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%{    
+    Fin 971: Spring 2025 Corporate Finance
+    Problem Set 7: DeMarzo and Fishman (2007, RFS)
+
+    Last Edit:  May 7, 2025
+    Authors:    Cutberto Frias Sarraf, Zachary Orlando
+%}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+
+clear;
+clc;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%{
+    Parameters
+%}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+beta    = exp(-0.0953);                                 % Investor's discount factor
+delta   = exp(-0.0998);                                 % Agent's discount factor
+L       = 75.0;                                         % Investor's termination value
+R       = 0.0;                                          % Agent's termination value
+lambda  = 1.0;                                          % Diverted fraction
+Y_L     = 0.0;                                          % Project cash flow Low value
+Y_H     = 20.0;                                         % Project cash flow High value
+pi_H    = 0.5;                                          % Probability of a High cash flow value
+na      = 100;                                          % Grid size
+mu      = pi_H * Y_H + (1 - pi_H) * Y_L;                % Expected cash flow
+
+
+% Generate asset grid
+a_max       = mu / (1 - beta);                          % Maximum asset value
+a_min       = max(pi_H * lambda * (Y_H - Y_L) + R, delta^(-1) * R); % Minimum asset value
+a_grid      = exp(linspace(log(a_min), log(a_max), na));% Asset grid
+
+% Compute values for b, d_H, d_L, p_H, p_L, a_H, and a_L
+b       = ((mu - (beta - delta) * delta^(-1) * R) / (1 - beta) - a_grid)'; % Investor Value Function
+d_H     = zeros(na, 1);                                 % High state Dividend
+d_L     = zeros(na, 1);                                 % Low state Dividend
+p_H     = zeros(na, 1);                                 % High state probability of termination
+p_L     = zeros(na, 1);                                 % Low state probability of termination
+a_H     = zeros(na, 1);                                 % High state next promised value
+a_L     = zeros(na, 1);                                 % Low state next promised value
+
+
+% First best policy functions
+
+b_FB    = (mu - (beta - delta) * delta^(-1) * R) / (1 - beta) - a_grid; % FB Value Function
+d_H_FB  = a_grid; 
+d_L_FB  = a_grid; 
+a_H_FB  = zeros(na, 1); 
+a_L_FB  = zeros(na, 1); 
+p_H_FB  = zeros(na, 1); 
+p_L_FB  = zeros(na, 1); 
+
+
+% Parameters and Resuls Lists to be called
+parameters = [beta, delta, L, R, lambda, Y_L, Y_H, pi_H, na, mu, a_max, a_min, a_grid];
+% results    = [b, d_H, d_L, p_H, p_L, a_H, a_L];
+
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%{
+    Solve the model
+    [b, d_H, d_L, p_H, p_L, a_H, a_L] = Solve_Model(parameters, results);
+%}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Set tolerance 
+tol = 1e-4;
+
+% Initialize variables
+next_b = zeros(na, 1);    % Pre-allocate next_b
+old_b  = b;               % First best guess
+error  = 10;              % Initialize error
+n      = 0;               % Iteration counter
+
+% Iterate until convergence
+while error > tol
+    for i = 1:na
+        % Call the solver and update next_b[i]
+        a = a_grid(i);
+        [obj, ~, ~, ~, ~, ~, ~] = Solver(a, old_b, parameters);
+        next_b(i) = - obj;
+    end
+
+    error = max(abs(next_b - old_b));  % Maximum absolute difference
+    old_b = next_b;                    % Update guess
+    n = n + 1;                         % Increase counter
+
+    fprintf("Solve_Model: Iteration %d, Error = %.6f\n", n, error);
+end
+
+% After convergence, fill in the results for the policy functions
+for i = 1:na
+    a = a_grid(i);
+    [obj, d_H(i), d_L(i), p_H(i), p_L(i), a_H(i), a_L(i)] = Solver(a, next_b, parameters);
+    b(i) = -obj;
+end

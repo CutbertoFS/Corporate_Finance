@@ -1,0 +1,56 @@
+% Solver function
+
+function [obj, d_H, d_L, p_H, p_L, a_H, a_L] = Solver(a, old_b, parameters)
+
+    % Unpacking the parameters and policy functions
+    beta    = parameters(1);
+    delta   = parameters(2);
+    L       = parameters(3);
+    R       = parameters(4);
+    lambda  = parameters(5);
+    Y_L     = parameters(6);
+    Y_H     = parameters(7);
+    pi_H    = parameters(8);
+    na      = parameters(9);
+    mu      = parameters(10);
+    a_max   = parameters(11);
+    a_min   = parameters(12);
+    a_grid  = parameters(13:end);
+
+    % Cubic spline interpolation with extrapolation 
+    Interpolation_function = @(x) interp1(a_grid, old_b, x, 'spline', 'extrap');
+
+    % Define initial guesses for decision variables
+    d_H_init = 0.5 * a_max;
+    d_L_init = 0.5 * a_max;
+    p_H_init = 0.5;
+    p_L_init = 0.5;
+    a_H_init = 0.5 * (a_min + a_max);
+    a_L_init = 0.5 * (a_min + a_max);
+
+    % Set optimization options with fmincon
+    Options         = optimoptions('fmincon', 'Display', 'off', 'Algorithm', 'sqp');
+
+    % Declare the Objective Function
+    Objective       = @(x) Objective_Function(x, a, Interpolation_function, parameters);
+    
+    % Initial guess for the optimization
+    initial_guess   = [d_H_init, d_L_init, p_H_init, p_L_init, a_H_init, a_L_init];
+
+    % Constraints 
+    Constraints     = @(x) Constraints_Function(x, a, parameters);
+
+    % Solve optimization problem using fmincon
+    [solution, obj] = fmincon(Objective, initial_guess, [], [], [], [], ...
+                            [0, 0, 0, 0, a_min, a_min], [a_max, a_max, 1, 1, a_max, a_max], ...
+                            Constraints, Options);
+
+    % Extract optimized values
+    d_H = solution(1);
+    d_L = solution(2);
+    p_H = solution(3);
+    p_L = solution(4);
+    a_H = solution(5);
+    a_L = solution(6);
+
+end
